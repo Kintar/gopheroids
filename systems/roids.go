@@ -3,6 +3,7 @@ package systems
 import (
     "github.com/faiface/pixel"
     "github.com/fogleman/gg"
+    "github.com/kintar/gopheroids/ecs"
     "github.com/kintar/gopheroids/util"
     "golang.org/x/image/colornames"
     "math"
@@ -28,4 +29,24 @@ type Asteroid struct {
     Spin float64
     Velocity pixel.Vec
     SpriteIndex int
+}
+
+type AsteroidSystem struct {
+    roids map[ecs.Entity]Asteroid
+    spriteSheet *pixel.PictureData
+    sprites []*pixel.Sprite
+}
+
+const AsteroidSystemName = ecs.SystemName("asteroids")
+
+func (a AsteroidSystem) Name() ecs.SystemName {
+    return AsteroidSystemName
+}
+
+func (a AsteroidSystem) DependsOn() []ecs.SystemName {
+    return nil
+}
+
+func (a AsteroidSystem) Update(deltaTime float64) {
+    panic("implement me")
 }
