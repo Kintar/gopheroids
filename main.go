@@ -35,12 +35,12 @@ func run() {
     last := time.Now()
     for ; !window.Closed(); {
         window.Clear(colornames.Black)
-        window.Update()
         now := time.Now()
         delta := float64(now.Sub(last).Milliseconds()) / 1000.0
         roids.Update(delta)
         if window.JustPressed(pixelgl.KeyEscape) {
             window.SetClosed(true)
         }
+        window.Update()
     }
 }
