@@ -40,38 +40,34 @@ func namesIntersect(s1, s2 []SystemName) bool {
 
 // Register adds a system into the processing loop.
 func Register(system System) {
-	go func() {
-		systemsMutex.Lock()
-		defer systemsMutex.Unlock()
+	systemsMutex.Lock()
+	defer systemsMutex.Unlock()
 
-		// Validate dependencies to prevent cyclic references
-		// To do this, we just check if the dependency is already in place.  If not, return an error.
-		// This way, cyclic dependencies can never be added due to a chicken-and-egg problem
-		// (But it does mean you have to control how you add your systems)
-		deps := system.DependsOn()
-		for _, dep := range deps {
-			if _, ok := systems[dep]; !ok {
-				panic(fmt.Sprintf("can't register system %s: missing dependency %s", system.Name(), dep))
-			}
+	// Validate dependencies to prevent cyclic references
+	// To do this, we just check if the dependency is already in place.  If not, return an error.
+	// This way, cyclic dependencies can never be added due to a chicken-and-egg problem
+	// (But it does mean you have to control how you add your systems)
+	deps := system.DependsOn()
+	for _, dep := range deps {
+		if _, ok := systems[dep]; !ok {
+			panic(fmt.Sprintf("can't register system %s: missing dependency %s", system.Name(), dep))
 		}
+	}
 
-		if _, ok := systems[system.Name()]; !ok {
-			systems[system.Name()] = system
-		} else {
-			log.Println("could not add system: system '", system.Name(), "' already registered")
-		}
-	}()
+	if _, ok := systems[system.Name()]; !ok {
+		systems[system.Name()] = system
+	} else {
+		log.Println("could not add system: system '", system.Name(), "' already registered")
+	}
 }
 
 // Unregister removes a System.  Note that it DOES NOT CHECK DEPENDENCIES!  So don't remove a system that another one
 // depends on.
 func Unregister(system SystemName) {
-	go func() {
-		systemsMutex.Lock()
-		defer systemsMutex.Unlock()
+	systemsMutex.Lock()
+	defer systemsMutex.Unlock()
 
-		delete(systems, system)
-	}()
+	delete(systems, system)
 }
 
 var updateComplete = make(chan bool)
@@ -128,6 +124,10 @@ func Update(deltaTime float64) {
 		// Loop over our current systems
 	sysLoop:
 		for _, sys := range currentSystems {
+			if done, ok := completed[sys.Name()]; ok && done {
+				continue
+			}
+
 			for _, dep := range sys.DependsOn() {
 				if !completed[dep] {
 					// If any dependency is not complete, skip this system
@@ -152,6 +152,7 @@ func Update(deltaTime float64) {
 			// Update the system and signal the group on a new goroutine
 			go func() {
 				mySys.Update(deltaTime)
+				completed[mySys.Name()] = true
 				waitGroup.Done()
 			}()
 		}
