@@ -3,6 +3,7 @@ package main
 import (
     "github.com/faiface/pixel"
     "github.com/faiface/pixel/pixelgl"
+    "github.com/kintar/gopheroids/ecs"
     "github.com/kintar/gopheroids/systems"
     "golang.org/x/image/colornames"
     "time"
@@ -32,12 +33,14 @@ func run() {
         roids.NewRoid()
     }
 
+    ecs.Register(&roids)
+
     last := time.Now()
     for ; !window.Closed(); {
         window.Clear(colornames.Black)
         now := time.Now()
         delta := float64(now.Sub(last).Milliseconds()) / 1000.0
-        roids.Update(delta)
+        ecs.Update(delta)
         if window.JustPressed(pixelgl.KeyEscape) {
             window.SetClosed(true)
         }
