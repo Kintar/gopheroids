@@ -1,6 +1,7 @@
 package systems
 
 import (
+    "fmt"
     "github.com/faiface/pixel"
     "github.com/fogleman/gg"
     "github.com/kintar/gopheroids/ecs"
@@ -29,8 +30,8 @@ func makeAsteroidSpriteSheet() (*pixel.PictureData, []*pixel.Sprite) {
             yOffset := 80 * float64(a)
             ctx.Translate(0, yOffset)
             drawAsteroid(scale, ctx)
-            ctx.Translate(0, -yOffset)
             ox, oy := ctx.TransformPoint(-scale/2, -scale/2)
+            ctx.Translate(0, -yOffset)
             spriteBounds = append(spriteBounds, pixel.R(ox, oy, ox+scale, oy+scale))
         }
         ctx.Translate(scale, 0)
@@ -38,6 +39,7 @@ func makeAsteroidSpriteSheet() (*pixel.PictureData, []*pixel.Sprite) {
 
     pic := pixel.PictureDataFromImage(ctx.Image())
     for _, bounds := range spriteBounds {
+        fmt.Printf("%v\n", bounds)
         sprites = append(sprites, pixel.NewSprite(pic, bounds))
     }
 
@@ -123,6 +125,7 @@ func (a *AsteroidSystem) Update(deltaTime float64) {
 
 var lastEntity = uint64(0)
 var lastRoid = 0
+
 func (a *AsteroidSystem) NewRoid() {
     pos := pixel.V(rand.Float64()*1024, rand.Float64()*768)
     dir := rand.Float64() * util.Tau
@@ -132,11 +135,11 @@ func (a *AsteroidSystem) NewRoid() {
     ent := ecs.Entity(lastEntity)
     a.roids[ent] = Asteroid{
         Size:        0,
-        Spin:        rand.Float64() * math.Pi,
+        Spin:        -0.5 + rand.Float64(),
         Position:    pos,
         Rotation:    rand.Float64() * util.Tau,
         Velocity:    vel,
-        SpriteIndex: (lastRoid * 5) % 15,
+        SpriteIndex: lastRoid % 5,
     }
     lastRoid++
 }
