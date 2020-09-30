@@ -10,26 +10,58 @@ import (
     "math/rand"
 )
 
-const EighthCircle = math.Pi / 4.0
+const CircleSegment = math.Pi / 8.0
 
-func makeAsteroidPicture(radius int) *pixel.PictureData {
-    ctx := gg.NewContext(radius, radius)
+func makeAsteroidSpriteSheet() (*pixel.PictureData, []*pixel.Sprite) {
+    sprites := make([]*pixel.Sprite, 0)
+
+    ctx := gg.NewContext(240, 400)
+    ctx.Identity()
+    xOffset := 40.0
+    ctx.Translate(xOffset, 40)
     ctx.SetColor(colornames.White)
-    ctx.MoveTo(1, 0)
-    halfRad := float64(radius / 2)
 
-    rad := 0.0
-    ctx.MoveTo(halfRad + math.Sin(0.0) * halfRad, halfRad + math.Cos(0.0) * halfRad)
-    rad += EighthCircle
-    for ; rad < util.Tau; rad += EighthCircle {
-        x := halfRad + math.Sin(rad)*halfRad
-        y := halfRad + math.Cos(rad)*halfRad
-        ctx.LineTo(x, y)
+    spriteBounds := make([]pixel.Rect, 0)
+
+    // Make five asteroid images at each of the three size scales
+    for scale := 80.0; scale >= 20.0; scale /= 2 {
+        for a := 0; a < 5; a++ {
+            yOffset := 80 * float64(a)
+            ctx.Translate(0, yOffset)
+            drawAsteroid(scale, ctx)
+            ctx.Translate(0, -yOffset)
+            ox, oy := ctx.TransformPoint(-scale/2, -scale/2)
+            spriteBounds = append(spriteBounds, pixel.R(ox, oy, ox+scale, oy+scale))
+        }
+        ctx.Translate(scale, 0)
+    }
+
+    pic := pixel.PictureDataFromImage(ctx.Image())
+    for _, bounds := range spriteBounds {
+        sprites = append(sprites, pixel.NewSprite(pic, bounds))
+    }
+
+    return pic, sprites
+}
+
+func drawAsteroid(radius float64, ctx *gg.Context) {
+    ctx.SetColor(colornames.White)
+
+    quarterRadius := radius / 4.0
+
+    angle := 0.0
+
+    offsetX := math.Cos(angle) * quarterRadius
+    offsetY := math.Sin(angle) * quarterRadius
+
+    angle += CircleSegment
+    for ; angle < util.Tau; angle += CircleSegment {
+        offsetX = math.Cos(angle) * (quarterRadius + rand.Float64()*quarterRadius)
+        offsetY = math.Sin(angle) * (quarterRadius + rand.Float64()*quarterRadius)
+        ctx.LineTo(offsetX, offsetY)
     }
     ctx.ClosePath()
     ctx.Stroke()
-    ctx.SavePNG("roid.png")
-    return pixel.PictureDataFromImage(ctx.Image())
 }
 
 type Asteroid struct {
@@ -49,14 +81,12 @@ type AsteroidSystem struct {
 }
 
 func NewAsteroidSystem(drawTarget pixel.Target) AsteroidSystem {
-    pic := makeAsteroidPicture(20)
+    pic, sprites := makeAsteroidSpriteSheet()
     return AsteroidSystem{
         drawTarget:  drawTarget,
         roids:       make(map[ecs.Entity]Asteroid),
         spriteSheet: pic,
-        sprites: []*pixel.Sprite{
-            pixel.NewSprite(pic, pic.Bounds()),
-        },
+        sprites:     sprites,
     }
 }
 
@@ -92,7 +122,7 @@ func (a *AsteroidSystem) Update(deltaTime float64) {
 }
 
 var lastEntity = uint64(0)
-
+var lastRoid = 0
 func (a *AsteroidSystem) NewRoid() {
     pos := pixel.V(rand.Float64()*1024, rand.Float64()*768)
     dir := rand.Float64() * util.Tau
@@ -106,6 +136,7 @@ func (a *AsteroidSystem) NewRoid() {
         Position:    pos,
         Rotation:    rand.Float64() * util.Tau,
         Velocity:    vel,
-        SpriteIndex: 0,
+        SpriteIndex: (lastRoid * 5) % 15,
     }
+    lastRoid++
 }
