@@ -3,5 +3,5 @@ package util
 import "math"
 
 const (
-    Tau = math.Pi * 2.0
+	Tau = math.Pi * 2.0
 )
