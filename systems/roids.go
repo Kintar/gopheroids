@@ -67,12 +67,23 @@ func drawAsteroid(radius float64, ctx *gg.Context) {
 }
 
 type Asteroid struct {
+	entity 		ecs.Entity
 	Size        float64
 	Spin        float64
 	Position    pixel.Vec
 	Rotation    float64
 	Velocity    pixel.Vec
 	SpriteIndex int
+}
+
+const AsteroidComponent = ecs.ComponentName("Asteroid")
+
+func (a Asteroid) Name() ecs.ComponentName {
+	return AsteroidComponent
+}
+
+func (a Asteroid) Entity() ecs.Entity {
+	return a.entity
 }
 
 type AsteroidSystem struct {
@@ -123,7 +134,6 @@ func (a *AsteroidSystem) Update(deltaTime float64) {
 	batch.Draw(a.drawTarget)
 }
 
-var lastEntity = uint64(0)
 var lastRoid = 0
 
 func (a *AsteroidSystem) NewRoid() {
@@ -131,9 +141,7 @@ func (a *AsteroidSystem) NewRoid() {
 	dir := rand.Float64() * util.Tau
 	speed := rand.Float64() * 50
 	vel := pixel.V(speed*math.Cos(dir), speed*math.Sin(dir))
-	lastEntity++
-	ent := ecs.Entity(lastEntity)
-	a.roids[ent] = Asteroid{
+	c := Asteroid{
 		Size:        0,
 		Spin:        -0.5 + rand.Float64(),
 		Position:    pos,
@@ -142,4 +150,5 @@ func (a *AsteroidSystem) NewRoid() {
 		SpriteIndex: lastRoid % 5,
 	}
 	lastRoid++
+	ecs.NewEntity().With(c).Build()
 }
