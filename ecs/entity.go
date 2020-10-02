@@ -13,6 +13,7 @@ type Entity struct {
     EntityId
     manager    *EntityManager
     components sync.Map
+    destroyed  bool
 }
 
 func (e *Entity) Add(cid ComponentId, c interface{}) {
@@ -22,10 +23,6 @@ func (e *Entity) Add(cid ComponentId, c interface{}) {
 
 func (e *Entity) Destroy() {
     e.manager.DestroyEntity(e.EntityId)
-
-    e.components = sync.Map{}
-    e.manager = nil
-    e.EntityId = EntityId(0)
 }
 
 type EntityManager struct {
@@ -88,32 +85,27 @@ func (m *EntityManager) DestroyEntity(eid EntityId) {
         return
     }
 
-    if e, ok := e.(*Entity); ok {
-        e.components.Range(func(key interface{}, value interface{}) bool {
-            cid := key.(ComponentId)
-            m.removeEntityFromComponent(cid, e)
-            return true
-        })
-    }
-
     ent := e.(*Entity)
     ent.components = sync.Map{}
     ent.manager = nil
+    ent.destroyed = true
     ent.EntityId = 0
 }
 
-func (m *EntityManager) removeEntityFromComponent(cid ComponentId, e *Entity) {
-    m.ebcMutex.Lock()
+func (m *EntityManager) Query(cids... ComponentId) []*Entity {
+    m.ebcMutex.RLock()
     defer m.ebcMutex.Unlock()
 
-    eList := m.entitiesByComponent[cid]
-    lastIdx := len(eList) - 1
-    for i, e2 := range eList {
-        if e2 == e {
-            eList[i] = eList[lastIdx]
-            eList = eList[:lastIdx]
-            m.entitiesByComponent[cid] = eList
-            return
+    entities := make([]*Entity, 0)
+    for _, cid := range cids {
+        if es, ok := m.entitiesByComponent[cid]; ok {
+            for _, e := range es {
+                if e.destroyed {
+                    continue
+                }
+                entities = append(entities, e)
+            }
         }
     }
+    return entities
 }
