@@ -5,183 +5,115 @@ import (
     "sync/atomic"
 )
 
-type Entity uint64
+type EntityId uint64
 
-var lastEntity = uint64(0)
+type ComponentId uint64
 
-type ComponentName string
-
-type Component interface {
-    Name() ComponentName
-    Entity() Entity
+type Entity struct {
+    EntityId
+    manager    *EntityManager
+    components sync.Map
 }
 
-var entityLock = sync.RWMutex{}
-var entitiesByComponent = make(map[ComponentName][]Entity)
-var componentsByEntity = make(map[Entity][]Component)
+func (e *Entity) Add(cid ComponentId, c interface{}) {
+    e.components.Store(cid, c)
+    e.manager.registerComponent(cid, e)
+}
 
-func EntitiesWith(cns ...ComponentName) []Entity {
-    // Grab and auto-release the read lock
-    entityLock.RLock()
-    defer entityLock.RUnlock()
+func (e *Entity) Destroy() {
+    e.manager.DestroyEntity(e.EntityId)
 
-    reply := make([]Entity, 0)
-    for _, cn := range cns {
-        if ent, ok := entitiesByComponent[cn]; ok {
-            reply = append(reply, ent...)
-        }
+    e.components = sync.Map{}
+    e.manager = nil
+    e.EntityId = EntityId(0)
+}
+
+type EntityManager struct {
+    lastEntityId        uint64
+    lastComponentId     uint64
+    entities            sync.Map
+    entitiesByComponent map[ComponentId][]*Entity
+    ebcMutex            sync.RWMutex
+}
+
+func (m *EntityManager) registerComponent(cid ComponentId, e *Entity) {
+    m.ebcMutex.Lock()
+    defer m.ebcMutex.Unlock()
+
+    var eList []*Entity
+
+    if el, ok := m.entitiesByComponent[cid]; ok {
+        eList = append(el, e)
+    } else {
+        eList = []*Entity{e}
     }
 
-    return reply
+    m.entitiesByComponent[cid] = eList
 }
 
-func QueryFor(cns ...ComponentName) []Component {
-    entities := EntitiesWith(cns...)
+func (m *EntityManager) removeComponent(cid ComponentId, e *Entity) {
+    m.ebcMutex.Lock()
+    defer m.ebcMutex.Unlock()
 
-    entityLock.RLock()
-    defer entityLock.RUnlock()
-
-    panic("implement me!")
+    if el, ok := m.entitiesByComponent[cid]; ok {
+        for i, e2 := range el {
+            if e == e2 {
+                el[i] = el[len(el)-1]
+                el = el[:len(el)-1]
+                m.entitiesByComponent[cid] = el
+                return
+            }
+        }
+    }
 }
 
-type EntityBuilder struct {
-    entity     Entity
-    components []Component
-}
+func (m *EntityManager) NewEntity() *Entity {
+    e := &Entity{
+        EntityId:   EntityId(atomic.AddUint64(&m.lastEntityId, 1)),
+        manager:    m,
+        components: sync.Map{},
+    }
 
-func (e *EntityBuilder) With(c ...Component) *EntityBuilder {
-    e.components = append(e.components, c...)
+    m.entities.Store(e.EntityId, e)
     return e
 }
 
-func (e *EntityBuilder) Build() Entity {
-    // Grab and auto-release the write lock
-    entityLock.Lock()
-    defer entityLock.Unlock()
-
-    // Add this entity to the list
-    componentsByEntity[e.entity] = e.components
-    // For every component on this entity
-    for _, c := range e.components {
-        // See if we already have a list of entities
-        if cl, ok := entitiesByComponent[c.Name()]; ok {
-            // Append to it if we do
-            cl = append(cl, e.entity)
-        } else {
-            // Create it if we don't
-            entitiesByComponent[c.Name()] = []Entity{e.entity}
-        }
-    }
-
-    return e.entity
+func (m *EntityManager) CreateComponent() ComponentId {
+    return ComponentId(atomic.AddUint64(&m.lastComponentId, 1))
 }
 
-func NewEntity() *EntityBuilder {
-    eid := atomic.AddUint64(&lastEntity, 1)
-
-    return &EntityBuilder{
-        entity:     Entity(eid),
-        components: make([]Component, 0),
-    }
-}
-
-func Destroy(e Entity) {
-    // Grab the write lock
-    entityLock.Lock()
-    // And release it when the function completes
-    defer entityLock.Unlock()
-
-    // We only have to do work if there exists a list of component names for this entity
-    if cbe, ok := componentsByEntity[e]; ok {
-        // Create a wait group
-        wg := sync.WaitGroup{}
-        // And increment it by the number of components on this entity
-        wg.Add(len(cbe))
-        // For each component
-        for _, c := range cbe {
-            // Start a goroutine
-            go func() {
-                // Get the slice of entities that have this component
-                eList := entitiesByComponent[c.Name()]
-                // Find the destroyed entity
-                for i, e2 := range eList {
-                    if e2 == e {
-                        // Once we have the destroyed entity, copy the last entity in the slice into its place
-                        eList[i] = eList[len(eList)-1]
-                        // Then reduce the size of the slice by one
-                        entitiesByComponent[c.Name()] = eList[:len(eList)-1]
-                        // And exit the loop
-                        break
-                    }
-                }
-                // Mark our work as done
-                wg.Done()
-            }()
-        }
-
-        // Wait for all the goroutines to finish
-        wg.Wait()
-    }
-}
-
-func AddComponents(e Entity, c ...Component) {
-    entityLock.RLock()
-    cl, ok := componentsByEntity[e]
-    entityLock.RUnlock()
-
+func (m *EntityManager) DestroyEntity(eid EntityId) {
+    e, ok := m.entities.LoadAndDelete(eid)
     if !ok {
-        cl = make([]Component, len(c))
-        copy(cl, c)
-        entityLock.Lock()
-        componentsByEntity[e] = cl
-    } else {
-        cl = append(cl, c...)
-        entityLock.Lock()
-        componentsByEntity[e] = cl
+        return
     }
 
-    entityLock.Unlock()
+    if e, ok := e.(*Entity); ok {
+        e.components.Range(func(key interface{}, value interface{}) bool {
+            cid := key.(ComponentId)
+            m.removeEntityFromComponent(cid, e)
+            return true
+        })
+    }
+
+    ent := e.(*Entity)
+    ent.components = sync.Map{}
+    ent.manager = nil
+    ent.EntityId = 0
 }
 
-func RemoveComponents(e Entity, cn ...ComponentName) {
-    entityLock.Lock()
-    defer entityLock.Unlock()
+func (m *EntityManager) removeEntityFromComponent(cid ComponentId, e *Entity) {
+    m.ebcMutex.Lock()
+    defer m.ebcMutex.Unlock()
 
-    if cList, ok := componentsByEntity[e]; ok {
-        wg := sync.WaitGroup{}
-        wg.Add(1)
-        go func() {
-            lastIndex := len(cList) - 1
-            for i, c := range cList {
-                for _, cn2 := range cn {
-                    if cn2 == c.Name() {
-                        cList[i] = cList[lastIndex]
-                        cList = cList[:lastIndex]
-                        lastIndex--
-                    }
-                }
-            }
-            wg.Done()
-        }()
-
-        for _, cn2 := range cn {
-            myName := cn2
-            wg.Add(1)
-            go func() {
-                eList := entitiesByComponent[myName]
-                for i, e2 := range eList {
-                    if e2 == e {
-                        eList[i] = eList[len(eList)-1]
-                        eList = eList[:len(eList)-1]
-                        entitiesByComponent[myName] = eList
-                        break
-                    }
-                }
-
-                wg.Done()
-            }()
+    eList := m.entitiesByComponent[cid]
+    lastIdx := len(eList) - 1
+    for i, e2 := range eList {
+        if e2 == e {
+            eList[i] = eList[lastIdx]
+            eList = eList[:lastIdx]
+            m.entitiesByComponent[cid] = eList
+            return
         }
-
-        wg.Wait()
     }
 }
