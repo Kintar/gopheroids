@@ -16,6 +16,14 @@ type Entity struct {
     destroyed  bool
 }
 
+func (e *Entity) Component(cid ComponentId) interface{} {
+    if c, ok := e.components.Load(cid); ok {
+        return c
+    }
+
+    return nil
+}
+
 func (e *Entity) Add(cid ComponentId, c interface{}) {
     e.components.Store(cid, c)
     e.manager.registerComponent(cid, e)
@@ -31,6 +39,12 @@ type EntityManager struct {
     entities            sync.Map
     entitiesByComponent map[ComponentId][]*Entity
     ebcMutex            sync.RWMutex
+}
+
+func NewEntityManager() *EntityManager {
+    return &EntityManager{
+        entitiesByComponent: make(map[ComponentId][]*Entity, 0),
+    }
 }
 
 func (m *EntityManager) registerComponent(cid ComponentId, e *Entity) {
@@ -94,7 +108,7 @@ func (m *EntityManager) DestroyEntity(eid EntityId) {
 
 func (m *EntityManager) Query(cids... ComponentId) []*Entity {
     m.ebcMutex.RLock()
-    defer m.ebcMutex.Unlock()
+    defer m.ebcMutex.RUnlock()
 
     entities := make([]*Entity, 0)
     for _, cid := range cids {

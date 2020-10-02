@@ -70,7 +70,6 @@ func Unregister(system SystemName) {
 	delete(systems, system)
 }
 
-var updateComplete = make(chan bool)
 var lastUpdateDuration float64
 
 // LastUpdateDuration reports the total time elapsed (in seconds) of the last call to Update

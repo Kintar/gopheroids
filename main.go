@@ -27,7 +27,9 @@ func run() {
 
 	window.Show()
 
-	roids := systems.NewAsteroidSystem(window)
+	manager := ecs.NewEntityManager()
+
+	roids := systems.NewAsteroidSystem(window, manager)
 
 	for r := 0; r < 20; r++ {
 		roids.NewRoid()
