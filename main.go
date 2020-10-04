@@ -35,13 +35,15 @@ func run() {
 		roids.NewRoid()
 	}
 
-	ecs.Register(&roids)
+	ecs.Register(roids)
 
 	last := time.Now()
 	for !window.Closed() {
 		window.Clear(colornames.Black)
 		now := time.Now()
 		delta := float64(now.Sub(last).Milliseconds()) / 1000.0
+		last = now
+		manager.Update(delta)
 		ecs.Update(delta)
 		if window.JustPressed(pixelgl.KeyEscape) {
 			window.SetClosed(true)

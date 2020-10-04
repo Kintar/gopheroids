@@ -84,10 +84,12 @@ func Update(deltaTime float64) {
 	systemsMutex.RLock()
 
 	completed := make(map[SystemName]bool, len(systems))
-	currentSystems := make([]System, len(systems))[:0]
+	currentSystems := make([]System, len(systems))
+	i := 0
 	for name, sys := range systems {
 		completed[name] = false
-		currentSystems = append(currentSystems, sys)
+		currentSystems[i] = sys
+		i++
 	}
 
 	// Done with the read lock

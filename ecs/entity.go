@@ -39,6 +39,8 @@ type EntityListener interface {
 }
 
 type EntityManager interface {
+    Updatable
+    CreateComponent() ComponentId
     RegisterInterest(ComponentId, EntityListener)
     RemoveInterest(ComponentId, EntityListener)
     Create() *Entity
@@ -49,6 +51,7 @@ type EntityManager interface {
 
 type entityManager struct {
     lastEntityId    uint64
+    lastComponentId uint64
     entities        map[EntityId]*Entity
     systems         []System
     entityListeners map[ComponentId][]EntityListener
@@ -61,6 +64,10 @@ func NewEntityManager() EntityManager {
         systems:         make([]System, 0),
         entityListeners: make(map[ComponentId][]EntityListener),
     }
+}
+
+func (e *entityManager) CreateComponent() ComponentId {
+    return ComponentId(atomic.AddUint64(&e.lastComponentId, 1))
 }
 
 func (e *entityManager) RegisterInterest(id ComponentId, listener EntityListener) {
@@ -155,4 +162,19 @@ func (e *entityManager) Remove(id EntityId, id2 ComponentId) {
             }
         }
     }
+}
+
+func (e *entityManager) Update(deltaTime float64) {
+    wg := sync.WaitGroup{}
+    e.updateMutex.Lock()
+    wg.Add(len(e.entities))
+    for _, ent := range e.entities {
+        self := ent
+        go func() {
+            self.Update(deltaTime)
+            wg.Done()
+        }()
+    }
+    e.updateMutex.Unlock()
+    wg.Wait()
 }

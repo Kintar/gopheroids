@@ -9,6 +9,7 @@ import (
     "golang.org/x/image/colornames"
     "math"
     "math/rand"
+    "sync"
 )
 
 const CircleSegment = math.Pi / 8.0
@@ -76,23 +77,47 @@ type Asteroid struct {
     SpriteIndex int
 }
 
+func (r *Asteroid) Update(deltaTime float64) {
+    r.Position = r.Position.Add(r.Velocity.Scaled(deltaTime))
+
+    if r.Position.X < 0.0 || r.Position.X > 1024 {
+        r.Position.X = 1024 - math.Abs(r.Position.X)
+    }
+
+    if r.Position.Y < 0 || r.Position.Y > 768 {
+        r.Position.Y = 768 - math.Abs(r.Position.Y)
+    }
+
+    r.Rotation = r.Rotation + r.Spin*deltaTime
+}
+
+func (a Asteroid) Id() ecs.ComponentId {
+    return roidComponent
+}
+
+var roidComponent ecs.ComponentId
+
 type AsteroidSystem struct {
-    roidComponent ecs.ComponentId
-    manager       *ecs.EntityManager
+    updateMutex   sync.RWMutex
+    manager       ecs.EntityManager
     drawTarget    pixel.Target
     spriteSheet   *pixel.PictureData
     sprites       []*pixel.Sprite
+    roids         map[ecs.EntityId]*Asteroid
 }
 
-func NewAsteroidSystem(drawTarget pixel.Target, mgr *ecs.EntityManager) AsteroidSystem {
+func NewAsteroidSystem(drawTarget pixel.Target, mgr ecs.EntityManager) *AsteroidSystem {
     pic, sprites := makeAsteroidSpriteSheet()
-    return AsteroidSystem{
-        roidComponent: mgr.CreateComponent(),
+    roidComponent = mgr.CreateComponent()
+    sys := &AsteroidSystem{
         manager:       mgr,
         drawTarget:    drawTarget,
         spriteSheet:   pic,
         sprites:       sprites,
+        roids:         make(map[ecs.EntityId]*Asteroid, 0),
     }
+    mgr.RegisterInterest(roidComponent, sys)
+    return sys
 }
 
 const AsteroidSystemName = ecs.SystemName("asteroids")
@@ -107,24 +132,40 @@ func (a *AsteroidSystem) DependsOn() []ecs.SystemName {
     return nil
 }
 
-func (a *AsteroidSystem) Update(deltaTime float64) {
+func (a *AsteroidSystem) Added(id ecs.EntityId, id2 ecs.ComponentId, i interface{}) {
+    if id2 != roidComponent {
+        return
+    }
+
+    if roid, ok := i.(*Asteroid); ok {
+        a.updateMutex.Lock()
+        defer a.updateMutex.Unlock()
+
+        a.roids[id] = roid
+    }
+}
+
+func (a *AsteroidSystem) Removed(id ecs.EntityId, id2 ecs.ComponentId) {
+    if id2 == roidComponent {
+        a.updateMutex.Lock()
+        defer a.updateMutex.Unlock()
+        delete(a.roids, id)
+    }
+}
+
+func (a *AsteroidSystem) Destroyed(id ecs.EntityId) {
+    a.updateMutex.Lock()
+    delete(a.roids, id)
+    a.updateMutex.Unlock()
+}
+
+func (a *AsteroidSystem) Update(_ float64) {
     batch := pixel.NewBatch(&pixel.TrianglesData{}, a.spriteSheet)
-    for _, e := range a.manager.Query(a.roidComponent) {
-        c := e.Component(a.roidComponent)
-        if r, ok := c.(Asteroid); ok && c != nil {
-            r.Position = r.Position.Add(r.Velocity.Scaled(deltaTime))
+    a.updateMutex.RLock()
+    defer a.updateMutex.RUnlock()
 
-            if r.Position.X < 0.0 || r.Position.X > 1024 {
-                r.Position.X = 1024 - math.Abs(r.Position.X)
-            }
-
-            if r.Position.Y < 0 || r.Position.Y > 768 {
-                r.Position.Y = 768 - math.Abs(r.Position.Y)
-            }
-
-            r.Rotation = r.Rotation + r.Spin*deltaTime
-            a.sprites[r.SpriteIndex].Draw(batch, pixel.IM.Rotated(vecCenter, r.Rotation).Moved(r.Position))
-        }
+    for _, r := range a.roids {
+        a.sprites[r.SpriteIndex].Draw(batch, pixel.IM.Rotated(vecCenter, r.Rotation).Moved(r.Position))
     }
     batch.Draw(a.drawTarget)
 }
@@ -136,7 +177,7 @@ func (a *AsteroidSystem) NewRoid() {
     dir := rand.Float64() * util.Tau
     speed := rand.Float64() * 50
     vel := pixel.V(speed*math.Cos(dir), speed*math.Sin(dir))
-    c := Asteroid{
+    c := &Asteroid{
         Size:        0,
         Spin:        -0.5 + rand.Float64(),
         Position:    pos,
@@ -145,6 +186,6 @@ func (a *AsteroidSystem) NewRoid() {
         SpriteIndex: lastRoid % 5,
     }
     lastRoid++
-    e := a.manager.NewEntity()
-    e.Add(a.roidComponent, c)
+    e := a.manager.Create()
+    e.Add(roidComponent, c)
 }
