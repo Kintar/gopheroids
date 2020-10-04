@@ -22,22 +22,6 @@ type System interface {
 var systems = make(map[SystemName]System)
 var systemsMutex = sync.RWMutex{}
 
-func namesIntersect(s1, s2 []SystemName) bool {
-	if len(s2) < len(s1) {
-		s2, s1 = s1, s2
-	}
-
-	for _, n1 := range s1 {
-		for _, n2 := range s2 {
-			if n1 == n2 {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // Register adds a system into the processing loop.
 func Register(system System) {
 	systemsMutex.Lock()

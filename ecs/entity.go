@@ -7,119 +7,122 @@ import (
 
 type EntityId uint64
 
-type ComponentId uint64
-
 type Entity struct {
     EntityId
-    manager    *EntityManager
-    components sync.Map
-    destroyed  bool
+    components []Component
+    manager    EntityManager
 }
 
-func (e *Entity) Component(cid ComponentId) interface{} {
-    if c, ok := e.components.Load(cid); ok {
-        return c
+func (e *Entity) Update(deltaTime float64) {
+    for _, c := range e.components {
+        c.Update(deltaTime)
     }
-
-    return nil
 }
 
-func (e *Entity) Add(cid ComponentId, c interface{}) {
-    e.components.Store(cid, c)
-    e.manager.registerComponent(cid, e)
+func (e *Entity) Add(id ComponentId, component interface{}) {
+    e.manager.Add(e.EntityId, id, component)
+}
+
+func (e *Entity) Remove(id ComponentId) {
+    e.manager.Remove(e.EntityId, id)
 }
 
 func (e *Entity) Destroy() {
-    e.manager.DestroyEntity(e.EntityId)
+    e.manager.Destroy(e.EntityId)
 }
 
-type EntityManager struct {
-    lastEntityId        uint64
-    lastComponentId     uint64
-    entities            sync.Map
-    entitiesByComponent map[ComponentId][]*Entity
-    ebcMutex            sync.RWMutex
+type EntityListener interface {
+    Added(EntityId, ComponentId, interface{})
+    Removed(EntityId, ComponentId)
+    Destroyed(EntityId)
 }
 
-func NewEntityManager() *EntityManager {
-    return &EntityManager{
-        entitiesByComponent: make(map[ComponentId][]*Entity, 0),
+type EntityManager interface {
+    Updatable
+    RegisterInterest(ComponentId, EntityListener)
+    RemoveInterest(ComponentId, EntityListener)
+    Create() *Entity
+    Destroy(EntityId)
+    Add(EntityId, ComponentId, interface{})
+    Remove(EntityId, ComponentId)
+}
+
+type entityManager struct {
+    lastEntityId uint64
+    entities map[EntityId]*Entity
+    systems []System
+    entityListeners map[ComponentId][]EntityListener
+    updateMutex sync.Mutex
+}
+
+func NewEntityManager() EntityManager {
+    return &entityManager{
+        entities:        make(map[EntityId]*Entity),
+        systems:         make([]System, 0),
+        entityListeners: make(map[ComponentId][]EntityListener),
     }
 }
 
-func (m *EntityManager) registerComponent(cid ComponentId, e *Entity) {
-    m.ebcMutex.Lock()
-    defer m.ebcMutex.Unlock()
+func (e *entityManager) RegisterInterest(id ComponentId, listener EntityListener) {
+    e.updateMutex.Lock()
+    defer e.updateMutex.Unlock()
 
-    var eList []*Entity
-
-    if el, ok := m.entitiesByComponent[cid]; ok {
-        eList = append(el, e)
+    slice, ok := e.entityListeners[id]
+    if !ok {
+        slice = make([]EntityListener, 1)
+        slice[0] = listener
     } else {
-        eList = []*Entity{e}
+        slice = append(slice, listener)
     }
 
-    m.entitiesByComponent[cid] = eList
+    e.entityListeners[id] = slice
 }
 
-func (m *EntityManager) removeComponent(cid ComponentId, e *Entity) {
-    m.ebcMutex.Lock()
-    defer m.ebcMutex.Unlock()
+func (e *entityManager) RemoveInterest(id ComponentId, listener EntityListener) {
+    e.updateMutex.Lock()
+    defer e.updateMutex.Unlock()
 
-    if el, ok := m.entitiesByComponent[cid]; ok {
-        for i, e2 := range el {
-            if e == e2 {
-                el[i] = el[len(el)-1]
-                el = el[:len(el)-1]
-                m.entitiesByComponent[cid] = el
+    slice, ok := e.entityListeners[id]
+    if ok {
+        end := len(slice) - 1
+        for i, el := range slice {
+            if el == listener {
+                slice[i] = slice[end]
+                slice = slice[:end]
+                e.entityListeners[id] = slice
                 return
             }
         }
     }
 }
 
-func (m *EntityManager) NewEntity() *Entity {
-    e := &Entity{
-        EntityId:   EntityId(atomic.AddUint64(&m.lastEntityId, 1)),
-        manager:    m,
-        components: sync.Map{},
+func (e *entityManager) Create() *Entity {
+    eid := atomic.AddUint64(&e.lastEntityId, 1)
+    entity := &Entity{
+        EntityId: EntityId(eid),
+        manager: e,
+        components: make([]Component, 0),
     }
-
-    m.entities.Store(e.EntityId, e)
-    return e
+    e.updateMutex.Lock()
+    e.entities[entity.EntityId] = entity
+    e.updateMutex.Unlock()
+    return entity
 }
 
-func (m *EntityManager) CreateComponent() ComponentId {
-    return ComponentId(atomic.AddUint64(&m.lastComponentId, 1))
+func (e *entityManager) Destroy(id EntityId) {
+    e.updateMutex.Lock()
+    delete(e.entities, id)
+    e.updateMutex.Unlock()
 }
 
-func (m *EntityManager) DestroyEntity(eid EntityId) {
-    e, ok := m.entities.LoadAndDelete(eid)
-    if !ok {
-        return
-    }
-
-    ent := e.(*Entity)
-    ent.components = sync.Map{}
-    ent.manager = nil
-    ent.destroyed = true
-    ent.EntityId = 0
+func (e *entityManager) Add(id EntityId, id2 ComponentId, i interface{}) {
+    panic("implement me")
 }
 
-func (m *EntityManager) Query(cids... ComponentId) []*Entity {
-    m.ebcMutex.RLock()
-    defer m.ebcMutex.RUnlock()
+func (e *entityManager) Remove(id EntityId, id2 ComponentId) {
+    panic("implement me")
+}
 
-    entities := make([]*Entity, 0)
-    for _, cid := range cids {
-        if es, ok := m.entitiesByComponent[cid]; ok {
-            for _, e := range es {
-                if e.destroyed {
-                    continue
-                }
-                entities = append(entities, e)
-            }
-        }
-    }
-    return entities
+func (e *entityManager) Update(deltaTime float64) {
+    panic("implement me")
 }
