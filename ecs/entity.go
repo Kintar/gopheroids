@@ -1,6 +1,7 @@
 package ecs
 
 import (
+    "log"
     "sync"
     "sync/atomic"
 )
@@ -38,7 +39,6 @@ type EntityListener interface {
 }
 
 type EntityManager interface {
-    Updatable
     RegisterInterest(ComponentId, EntityListener)
     RemoveInterest(ComponentId, EntityListener)
     Create() *Entity
@@ -48,11 +48,11 @@ type EntityManager interface {
 }
 
 type entityManager struct {
-    lastEntityId uint64
-    entities map[EntityId]*Entity
-    systems []System
+    lastEntityId    uint64
+    entities        map[EntityId]*Entity
+    systems         []System
     entityListeners map[ComponentId][]EntityListener
-    updateMutex sync.Mutex
+    updateMutex     sync.Mutex
 }
 
 func NewEntityManager() EntityManager {
@@ -99,8 +99,8 @@ func (e *entityManager) RemoveInterest(id ComponentId, listener EntityListener) 
 func (e *entityManager) Create() *Entity {
     eid := atomic.AddUint64(&e.lastEntityId, 1)
     entity := &Entity{
-        EntityId: EntityId(eid),
-        manager: e,
+        EntityId:   EntityId(eid),
+        manager:    e,
         components: make([]Component, 0),
     }
     e.updateMutex.Lock()
@@ -115,14 +115,44 @@ func (e *entityManager) Destroy(id EntityId) {
     e.updateMutex.Unlock()
 }
 
+func (e *entityManager) notify(id ComponentId, callback func (EntityListener)) {
+    e.updateMutex.Lock()
+    defer e.updateMutex.Unlock()
+
+    if ls, ok := e.entityListeners[id]; ok {
+        for _, l := range ls {
+            callback(l)
+        }
+    }
+}
+
 func (e *entityManager) Add(id EntityId, id2 ComponentId, i interface{}) {
-    panic("implement me")
+    if component, ok := i.(Component); !ok {
+        log.Println("attempted to add non-component to entity")
+    } else {
+        if ent, ok := e.entities[id]; ok {
+            ent.components = append(ent.components, component)
+
+            go e.notify(id2, func (el EntityListener) {
+                el.Added(id, id2, component)
+            })
+        }
+    }
 }
 
 func (e *entityManager) Remove(id EntityId, id2 ComponentId) {
-    panic("implement me")
-}
-
-func (e *entityManager) Update(deltaTime float64) {
-    panic("implement me")
+    if ent, ok := e.entities[id]; ok {
+        end := len(ent.components) - 1
+        for i, c := range ent.components {
+            if c.Id() == id2 {
+                e.updateMutex.Lock()
+                ent.components[i] = ent.components[end]
+                ent.components = ent.components[:end]
+                e.updateMutex.Unlock()
+                go e.notify(id2, func (listener EntityListener) {
+                    listener.Removed(id, id2)
+                })
+            }
+        }
+    }
 }
